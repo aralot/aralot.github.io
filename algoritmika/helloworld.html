@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Algoritmika Test</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+</head>
+<body>
+  <script src="js/three.js"></script>
+  <script src="js/Detector.js"></script>
+  <script src="js/Stats.js"></script>
+  <script src="js/OrbitControls.js"></script>
+  <script src="js/THREEx.WindowResize.js"></script>
+  <script src="js/dat.gui.min.js"></script>
+  <style> 
+    .dg.ac {
+      z-index: 1;
+    }
+  </style>
+
+  <div id="ThreeJS" style="z-index: 1; position: absolute; left:0px; top:0px"></div>
+  <script>
+  (function() {
+    var scene = null;
+    var camera = null;
+    var renderer = null;
+
+    var materialsCache = {};
+    var MaterialType = {
+      BLACK: 'black',
+      GRAY: 'gray',
+      LIME: 'lime',
+      MULTI: 'multi',
+      WHITE: 'white'
+    };
+
+    var body = null;
+    var movementAccessories = null;
+
+    var createControlsGui = function() {
+      var isRectBodyEnabled = false;
+      var isTracksEnabled = false;
+      var controls = {
+        x: 0,
+        y: 0,
+        z: 0,
+        get 'enable rect body'() {
+          return isRectBodyEnabled;
+        },
+        set 'enable rect body'(value) {
+          if (body) {
+            scene.remove(body);
+          }
+          isRectBodyEnabled = value;
+          body = getBody(value);
+          scene.add(body);
+        },
+        get 'enable tracks'() {
+          return isTracksEnabled;
+        },
+        set 'enable tracks'(value) {
+          if (movementAccessories) {
+            scene.remove(movementAccessories);
+          }
+          isTracksEnabled = value;
+          movementAccessories = getMovementAccessories(value);
+          scene.add(movementAccessories);
+        }
+      };
+
+      var gui = new dat.GUI();
+      gui.add(controls, 'enable rect body').listen();
+      gui.add(controls, 'enable tracks').listen();
+    };
+
+    var createEnviroment = function() {
+      // scene
+      scene = new THREE.Scene();
+
+      // camera
+      var SCREEN_WIDTH = window.innerWidth, SCREEN_HEIGHT = window.innerHeight;	
+      var VIEW_ANGLE = 45, ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT, NEAR = 0.1, FAR = 20000;
+      camera = new THREE.PerspectiveCamera(VIEW_ANGLE, ASPECT, NEAR, FAR);
+      scene.add(camera);
+      camera.position.set(0, 150, 400);
+      camera.lookAt(scene.position);	
+      
+      // renderer
+      renderer = null;
+      if (Detector.webgl) {
+        renderer = new THREE.WebGLRenderer({ antialias:true });
+      } else {
+        renderer = new THREE.CanvasRenderer(); 
+      }
+      renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+      // automatically resize renderer
+      THREEx.WindowResize(renderer, camera);
+
+      // light
+      var light = new THREE.PointLight(0xffffff);
+      light.position.set(0, 250, 0);
+      scene.add(light);
+
+      // sky
+      var skyBoxGeometry = new THREE.CubeGeometry(10000, 10000, 10000);
+      var skyBoxMaterial = new THREE.MeshBasicMaterial({
+        color: 0xf5f5f5,
+        side: THREE.BackSide
+      });
+      var skyBox = new THREE.Mesh(skyBoxGeometry, skyBoxMaterial);
+      scene.add(skyBox);
+      
+      // DOM container
+      var container = document.getElementById('ThreeJS');
+      container.appendChild(renderer.domElement);
+      
+      // controls
+      // move mouse and: left   click to rotate, 
+      //                 middle click to zoom, 
+      //                 right  click to pan
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+      // stats
+      // displays current and past frames per second attained by scene
+      stats = new Stats();
+      stats.domElement.style.position = 'absolute';
+      stats.domElement.style.bottom = '0px';
+      stats.domElement.style.zIndex = 100;
+    };
+
+    var createObjects = function() {
+      body = getBody();
+      scene.add(body);
+
+      scene.add(getHands());
+      scene.add(getHead());
+
+      movementAccessories = getMovementAccessories();
+      scene.add(movementAccessories);
+    };
+
+    var getMaterial = function(slug) {
+      var cached = materialsCache[slug];
+      if (cached) {
+        return cached;
+      }
+
+      var material = null;
+      switch (slug) {
+        case MaterialType.MULTI:
+          var darkMaterial = new THREE.MeshBasicMaterial({ color: 0xffffcc });
+          var wireframeMaterial = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            wireframe: true,
+            transparent: true
+          }); 
+          material = [ darkMaterial, wireframeMaterial ]; 
+        break;
+        case MaterialType.GRAY:
+          material = new THREE.MeshLambertMaterial({ color: 'white' }); 
+        break;
+        case MaterialType.LIME:
+          material = new THREE.MeshPhongMaterial({ color: 'lime' });
+        break;
+        case MaterialType.WHITE:
+          material = new THREE.MeshLambertMaterial({
+            color: 'white',
+            emissive: 0xbbbbbb
+          });
+        break;
+        case MaterialType.BLACK:
+          material = new THREE.MeshBasicMaterial({ color: 'black' });
+        break;
+        default:
+          throw Error('No material with slug: ' + slug);
+      }
+
+      materialsCache[slug] = material;
+      return material;
+    };
+
+    var getBody = function(isRectBodyEnabled) {
+      if (isRectBodyEnabled) {
+        var parallelepipedBody = THREE.SceneUtils.createMultiMaterialObject( 
+            new THREE.BoxGeometry(50, 80, 60, 20, 1), 
+            getMaterial(MaterialType.MULTI));
+        parallelepipedBody.position.set(0, 40, 0);
+        return parallelepipedBody;
+      }
+
+      var cylinderBody = new THREE.Object3D();
+
+      var main = THREE.SceneUtils.createMultiMaterialObject( 
+          new THREE.CylinderGeometry(30, 30, 80, 20, 1), 
+          getMaterial(MaterialType.MULTI));
+      main.position.set(0, 40, 0);
+      cylinderBody.add(main);
+
+      var door = new THREE.Mesh( 
+          new THREE.CylinderGeometry(25, 25, 60, 20, 5), 
+          getMaterial(MaterialType.WHITE));
+      door.position.set(0, 40, 7);
+      cylinderBody.add(door);
+
+      return cylinderBody;
+    };
+
+    var getHands = function() {
+      var hands = new THREE.Object3D();
+      var leftHand = getHand();
+      var rightHand = getHand(true);
+      hands.add(leftHand);
+      hands.add(rightHand);
+      return hands;
+    };
+
+    var getHand = function(isRight) {
+      var hand = new THREE.Object3D();
+
+      var shoulder = THREE.SceneUtils.createMultiMaterialObject( 
+          new THREE.CylinderGeometry(5, 5, 30, 10, 1), 
+          getMaterial(MaterialType.MULTI));
+      var shoulderX = -30;
+      var shoulderRotationY = 0;
+      if (isRight) {
+        shoulderX += 60;
+        shoulderRotationY = Math.PI;
+      }
+      shoulder.position.set(shoulderX, 50, 15);
+      shoulder.rotation.set(-0.3 * Math.PI, shoulderRotationY, -0.3 * Math.PI);
+      hand.add(shoulder);
+
+      var joint = new THREE.Mesh(
+          new THREE.SphereGeometry(7, 15, 15),
+          getMaterial(MaterialType.GRAY));
+      var jointX = shoulderX - 10;
+      if (isRight) {
+        jointX = shoulderX + 10;
+      }
+      joint.position.set(jointX, 45, 20);
+      hand.add(joint);
+
+      var forearmX = jointX + 7;
+      var forearmRotationY = Math.PI;
+      if (isRight) {
+        forearmX = jointX - 7;
+        forearmRotationY = 0;
+      }
+      var forearm = THREE.SceneUtils.createMultiMaterialObject( 
+        new THREE.CylinderGeometry(5, 5, 30, 10, 1), 
+        getMaterial(MaterialType.MULTI));
+      forearm.position.set(forearmX, 39, 30);
+      forearm.rotation.set(-0.3 * Math.PI, forearmRotationY, -0.2 * Math.PI);
+      hand.add(forearm);
+
+      var pincersShape = new THREE.Shape();
+      pincersShape.moveTo(3, 0);
+      pincersShape.lineTo(0, 27);
+      pincersShape.lineTo(12, 27);
+      pincersShape.lineTo(9, 0);
+      pincersShape.lineTo(6, 22);
+      pincersShape.lineTo(3, 0);
+      var pincersExtrudeSettins = { amount: 8, bevelEnabled: false };
+      var pincers = new THREE.Mesh(
+          new THREE.ExtrudeGeometry(pincersShape, pincersExtrudeSettins),
+          getMaterial(MaterialType.GRAY));
+      pincers.position.set(-4, 25, 57);
+      pincers.rotation.set(-0.3 * Math.PI, Math.PI, -0.2 * Math.PI);
+      if (isRight) {
+        pincers.position.set(3, 18, 52);
+        pincers.rotation.set(-0.3 * Math.PI, 0, -0.2 * Math.PI);
+      }
+      hand.add(pincers);
+
+      return hand;
+    }
+
+    var getHead = function() {
+      var head = new THREE.Object3D();
+      var headX = 0;
+
+      var main = THREE.SceneUtils.createMultiMaterialObject( 
+        new THREE.CylinderGeometry(16, 16, 36, 20, 1), 
+        getMaterial(MaterialType.MULTI));
+      main.position.set(headX, 98, 0);
+      head.add(main);
+
+      var pin = THREE.SceneUtils.createMultiMaterialObject( 
+        new THREE.CylinderGeometry(1, 1, 18), 
+        getMaterial(MaterialType.MULTI));
+      pin.position.set(headX, 125, 0);
+      head.add(pin);
+
+      var pompon = new THREE.Mesh(
+          new THREE.SphereGeometry(3, 10, 10),
+          getMaterial(MaterialType.GRAY));
+      pompon.position.set(headX, 134, 0);
+      head.add(pompon);
+
+      var leftEye = getEye(headX);
+      var rightEye = getEye(headX, true);
+      head.add(leftEye);
+      head.add(rightEye);
+
+      var eyeCoverShape = new THREE.Shape();
+      eyeCoverShape.moveTo(10, 10);
+      eyeCoverShape.lineTo(10, 25);
+      eyeCoverShape.absarc(15, 25, 5, Math.PI, 0, true);
+      eyeCoverShape.lineTo(20, 10);
+      eyeCoverShape.absarc(15, 10, 5, 0, Math.PI, true);
+      var eyeCoverSettings = {
+        amount: 8,
+        bevelEnabled: true,
+        bevelSegments: 2,
+        steps: 2,
+        bevelSize: 1,
+        bevelThickness: 1
+      };
+      var eyeCover = new THREE.Mesh(
+          new THREE.ExtrudeGeometry(eyeCoverShape, eyeCoverSettings),
+          getMaterial(MaterialType.LIME));
+      eyeCover.position.set(17, 86, 9 );
+      eyeCover.rotation.z = 0.5 * Math.PI;
+      head.add(eyeCover);
+
+      return head;
+    };
+
+    var getEye = function(headX, isRight) {
+      var eye = new THREE.Object3D();
+      var eyeX = headX - 5;
+      if (isRight) {
+        eyeX = headX + 5;
+      }
+
+      var eyeball = new THREE.Mesh(
+          new THREE.SphereGeometry(5, 10, 10),
+          getMaterial(MaterialType.WHITE));
+      eyeball.position.set(eyeX, 101, 16);
+      eye.add(eyeball);
+
+      var sheen = new THREE.Mesh(
+          new THREE.BoxGeometry(2, 2, 2),
+          getMaterial(MaterialType.BLACK));
+      sheen.position.set(eyeX, 101, 20);
+      eye.add(sheen);
+
+      return eye;
+    };
+
+    var getMovementAccessories = function(isTracksEnabled) {
+      if (isTracksEnabled) {
+        var leftTrack = getTrack();
+        var rightTrack = getTrack(true);
+        var tracks = new THREE.Object3D();
+        tracks.add(leftTrack);
+        tracks.add(rightTrack);
+
+        var hub = new THREE.Mesh( 
+          new THREE.BoxGeometry(1, 60, 15), 
+          getMaterial(MaterialType.GRAY));
+        hub.position.set(0, 1, -2);
+        hub.rotation.z = 0.5 * Math.PI;
+        tracks.add(hub);
+
+        return tracks;
+      }
+
+      var leftWheel = getWheel();
+      var rightWheel = getWheel(true);
+      var wheels = new THREE.Object3D();
+      wheels.add(leftWheel);
+      wheels.add(rightWheel);
+
+      var hub = new THREE.Mesh( 
+        new THREE.CylinderGeometry(4, 4, 76, 40), 
+        getMaterial(MaterialType.GRAY));
+      hub.position.set(0, 5, 0);
+      hub.rotation.z = 0.5 * Math.PI;
+      wheels.add(hub);
+
+      return wheels;
+    };
+
+    var getTrack = function(isRight) {
+      var track = new THREE.Object3D();
+
+      trackCoverShape = new THREE.Shape();
+      trackCoverShape.moveTo(10, 10);
+      trackCoverShape.lineTo(10, 34);
+      trackCoverShape.absarc(15, 34, 5, Math.PI, 0, true);
+      trackCoverShape.lineTo(20, 10);
+      trackCoverShape.absarc(15, 10, 5, 0, Math.PI, true);
+      var trackCoverExtrudeSettings = {
+        amount: 4,
+        bevelEnabled: true,
+        bevelSegments: 2,
+        steps: 2,
+        bevelSize: 1,
+        bevelThickness: 1
+      };
+      var trackCover = new THREE.Mesh(
+          new THREE.ExtrudeGeometry(trackCoverShape, trackCoverExtrudeSettings),
+          getMaterial(MaterialType.LIME));
+      var trackCoverX = -35;
+      if (isRight) {
+        trackCoverX = 31;
+      }
+      trackCover.position.set(trackCoverX, -14, -25);
+      trackCover.rotation.y = 0.5 * Math.PI;
+      trackCover.rotation.z = 0.5 * Math.PI;
+      track.add(trackCover);
+
+      // шарниры гусеницы
+      var trackBallX = trackCoverX;
+      var trackBallY = 1;
+      if (isRight) {
+        trackBallX = 35;
+      }
+      track.add(getTrackBall(trackBallX, trackBallY, -15));
+      track.add(getTrackBall(trackBallX, trackBallY, -7));
+      track.add(getTrackBall(trackBallX, trackBallY, 1));
+      track.add(getTrackBall(trackBallX, trackBallY, 9));
+
+      return track;
+    };
+
+    var getTrackBall = function(x, y, z) {
+      var sphereGeometry = new THREE.SphereGeometry(4, 10, 10); 
+      var sphereMaterial = new THREE.MeshLambertMaterial( {color: 'white'} ); 
+      var trackBall = new THREE.Mesh(
+          new THREE.SphereGeometry(4, 10, 10),
+          getMaterial(MaterialType.GRAY));
+      trackBall.position.set(x, y, z);
+
+      return trackBall;
+    };
+
+    var getWheel = function(isRight) {
+      var wheel = new THREE.Mesh( 
+        new THREE.TorusGeometry(8, 4, 16, 40),
+        getMaterial(MaterialType.LIME));
+      var wheelX = -35;
+      if (isRight) {
+        wheelX = 35;
+      }
+      wheel.position.set(wheelX, 5, 0);
+      wheel.rotation.y = 0.5 * Math.PI;
+
+      return wheel;
+    };
+
+    var init = function() {
+      createEnviroment();
+      createObjects();
+      createControlsGui();
+    };
+
+    var animate = function() {
+      requestAnimationFrame(animate);
+      render();		
+      update();
+    };
+
+    var update = function() {
+      controls.update();
+      stats.update();
+    };
+
+    var render = function() {	
+      renderer.render(scene, camera);
+    };
+
+    init();
+    animate();
+  })();
+  </script>
+</body>
+</html>
